@@ -1,0 +1,162 @@
+---
+title: "Exercise set 2"
+author: "43727"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+# install.packages("glmnet") #if necessary
+library(glmnet) 
+library(tidyverse)
+library(knitr)
+library(pracma)
+```
+
+## High-dimensional regression
+
+#### Generate data (3 points)
+
+```{r}
+set.seed(97) 
+# Generate a matrix of predictors X
+# with 3 rows, 10 columns, and i.i.d. normal entries
+R = 3
+C = 10
+X <- matrix(rnorm(R*C,mean=0,sd=1), nrow= R, ncol = C)
+dim(X)
+
+# Create a sparse coefficient vector beta
+# with only 1 or 2 nonzero entries
+total = 10
+n = 1
+beta <- rep(c(0.5, 0), times = c(n,total-n)) 
+
+# Compute outcome y from the noise-free linear model
+# Linear model has no intercept
+y <- X%*%beta
+
+```
+
+#### Compute pseudoinverse (3 points)
+
+Use output from the `svd` function to compute a right pseudoinverse of `X`.
+
+```{r}
+S <- svd(X)
+
+V <- S$v
+D_inv <- inv(diag(S$d))
+U_t <- t(S$u)
+
+X_pseudoinv <- V %*% D_inv %*% U_t
+X_pseudoinv
+```
+
+#### Verify right-inverse property (3 points)
+
+```{r}
+I_right <- X%*%X_pseudoinv
+I_right 
+  
+I_right_round <- round(I_right)
+I_right_round 
+```
+
+**Explanation**: (1 point)
+
+*After multiplying matrix X with right pseudoinverse of matrix X, the result is a square matrix in which all the elements of the principal diagonal are approximately 1 and all other elements are near zero. The result is not surprising as product of matrix X with its pseudoinverse is an identify matrix.*
+
+#### Compare estimated beta to true beta (3 points)
+
+```{r}
+beta_svd <- round((X_pseudoinv%*%y),3)
+beta_table <- cbind(beta, beta_svd) 
+colnames(beta_table) <- c("beta","beta_svd")
+beta_table |> kable()
+```
+
+**Explanation**: (1 point)
+
+*For underdetermined system, each estimated beta follows a gaussian distribution. Each estimated beta are equally likely to be positive or negative and symmetrically distributed about the origin. The probability of low value beta is higher than high value beta.*
+
+#### Compute MSE for predicting y (3 points)
+
+```{r}
+y_svd <- X %*% beta_svd 
+mean((y - y_svd)^2)
+```
+
+**Explanation**: (1 point)
+
+*The MSE for predicting y using training data is close to 0, illustrating how underdetermined linear model provides almost a perfect fit to the training data.*
+
+#### Generate a new sample of test data and compute (in-distribution) test MSE (3 points)
+
+```{r}
+set.seed(98) 
+R = 3
+C = 10
+X_test <- matrix(rnorm(R*C,mean=0,sd=1), nrow= R, ncol = C)
+y_test <- X_test%*%beta
+
+mean((y - y_test)^2)
+```
+
+**Explanation**: (1 point)
+
+*The test MSE is much larger than the MSE of predicting y with training data. The underdetermined linear model over-fits the training data.*
+
+#### Use penalized regression to estimate beta (4 points)
+
+Compute the ridge and lasso estimates using `lambda = 0.1`, and compare these with the estimate from using `svd`.
+
+```{r}
+lambda <- 0.1
+
+lasso_fit <- glmnet(X, y, lambda=lambda,family='gaussian', intercept = F, alpha=1) 
+ridge_fit <- glmnet(X, y, lambda=lambda,family='gaussian',intercept = F, alpha=0) 
+
+```
+
+```{r}
+# Comparison
+beta_lasso <- round((lasso_fit$beta[,1]),3)
+beta_ridge <- round((ridge_fit$beta[,1]),3)
+
+betas <- cbind(beta, beta_lasso, beta_ridge, beta_svd)
+colnames(betas) <- c("beta", "lasso", "ridge", "svd")
+betas |>
+  kable()
+```
+
+**Explanation**: (1 point)
+
+*Lasso shrinks sufficiently all coefficients by similar amount and small coefficients to 0. Ridge shrinks coefficients by same proportion such that all the coefficients are non-zero but relatively small.*
+
+**Compute test MSE using penalized regression estimates (3 points)**
+
+```{r}
+set.seed(99) 
+R = 3
+C = 10
+y_test_ridge <- X_test%*%beta_ridge
+y_test_lasso <- X_test%*%beta_lasso
+
+mean((y - y_test_ridge)^2)
+mean((y - y_test_lasso)^2)
+```
+
+**Explanation**: (1 point)
+
+*Lasso find beta coefficients better by shrinking coefficient to 0 which removes low-weighted features. Lasso is more useful in this case where number of features is larger than number of observations to combat overfitting. Ridge shrink coefficients towards 0 but never to 0, hence, feature selection could not be performed, leaving more predictors with tiny effects, which are more prone to overfitting. Hence, test mean squared error for ridge regression is larger than lasso regression.*
+
+#### What are the first two variables to have nonzero coefficients in the lasso solution path as lambda decreases? (3 points)
+
+*First 2 variables to have non-zero coeffcients as lambda decreases are V10 and V1.*
+
+```{r}
+fit2 <- glmnet(X, y, family='gaussian',intercept = F, alpha=1) 
+plot(fit2, xvar = "lambda", label = TRUE)
+```
